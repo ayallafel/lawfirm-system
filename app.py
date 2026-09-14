@@ -5,7 +5,7 @@ import os
 import io
 import datetime
 import time
-from google import genai
+import google.generativeai as genai
 
 # --- הגדרות עיצוב וממשק ---
 st.set_page_config(page_title="אילן פלדמן - משרד עורכי דין", page_icon="🏢", layout="centered")
@@ -39,9 +39,12 @@ st.markdown("""
 
 LOGO_FILE = "logo.png"
 
-# --- הגדרת מפתח ה-AI והלקוח הרשמי החדש ---
-API_KEY = "AQ.Ab8RN6I1yYGdHWzYkBLjbTVFfIMj64t7WDVJghNFdIwChO284A"
-client = genai.Client(api_key=API_KEY)
+# --- הגדרת מפתח ה-AI הקלאסי ---
+API_KEY = "AIzaSyD2kYYWLQH-yDWgevLHLOKPS8cLxgGwg6g"
+try:
+    genai.configure(api_key=API_KEY)
+except Exception:
+    pass
 
 # --- ניהול מצב האפליקציה (Session State) לבחירת פרויקט ---
 if 'selected_project' not in st.session_state:
@@ -116,7 +119,7 @@ else:
 
     if not os.path.exists(REG_TEMPLATE_FILE):
         doc = Document()
-        doc.add_paragraph("שם המוכר:\nשם הקונה:\n\"ז קונה:\nמספר טלפון:\nכתובת נוכחית:\nמחיר הנכס:")
+        doc.add_paragraph("שם המוכר:\nשם הקונה:\nת\"ז קונה:\nמספר טלפון:\nכתובת נוכחית:\nמחיר הנכס:")
         doc.save(REG_TEMPLATE_FILE)
 
     def get_current_template_version():
@@ -126,6 +129,7 @@ else:
         return datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
 
     def extract_data_smart(doc):
+        """חילוץ דינאמי וחכם של כל שדה מתוך טופס הוורד"""
         data = {}
         for para in doc.paragraphs:
             text = para.text.strip()
@@ -138,11 +142,12 @@ else:
         return data
 
     def ai_smartify_contract_template(file_buffer):
-        """פונקציית AI המשתמשת בספריית google-genai החדשה להפיכת מסמך וורד לתבנית חכמה"""
+        """פונקציית AI המשתמשת ב-Gemini להפיכת מסמך וורד רגיל לתבנית מאסטר חכמה עם {{סוגריים}}"""
         try:
             doc = Document(file_buffer)
             full_text_to_process = "\n".join([p.text for p in doc.paragraphs if p.text.strip()])
             
+            model = genai.GenerativeModel('gemini-1.5-flash')
             prompt = f"""
             אתה עוזר משפטי חכם. לפניך טקסט של חוזה נדל"ן. 
             אנא החלף את הפרטים האישיים המשתנים (כגון שמות קונים, מוכרים, תעודות זהות, כתובות, מחירים ותאריכים) 
@@ -152,10 +157,7 @@ else:
             הטקסט:
             {full_text_to_process}
             """
-            response = client.models.generate_content(
-                model='gemini-2.5-flash',
-                contents=prompt,
-            )
+            response = model.generate_content(prompt)
             new_text_lines = response.text.split("\n")
             
             new_doc = Document()
