@@ -5,9 +5,10 @@ import os
 import io
 import datetime
 import time
+import google.generativeai as genai
 
 # --- הגדרות עיצוב וממשק ---
-st.set_page_config(page_title="אילן פלדמן - ניהול פרויקטי נדל\"ן", page_icon="🏢", layout="centered")
+st.set_page_config(page_title="אילן פלדמן - משרד עורכי דין", page_icon="🏢", layout="centered")
 
 st.markdown("""
     <style>
@@ -106,12 +107,12 @@ else:
 
     if not os.path.exists(TEMPLATE_FILE):
         doc = Document()
-        doc.add_paragraph("{{שם_המוכר}}\n{{שם_הקונה}}\n{{תז_קונה}}\n{{כתובת_נוכחית}}\n{{מחיר_הנכס}}")
+        doc.add_paragraph("המוכר: {{שם_המוכר}}\nהקונה: {{שם_הקונה}}\nת.ז: {{תז_קונה}}\nטלפון: {{טלפון_קונה}}\nכתובת: {{כתובת_נוכחית}}\nמחיר הנכס: {{מחיר_הנכס}}")
         doc.save(TEMPLATE_FILE)
 
     if not os.path.exists(REG_TEMPLATE_FILE):
         doc = Document()
-        doc.add_paragraph("שם המוכר:\nשם הקונה:\nת\"ז קונה:\nכתובת נוכחית:\nמחיר הנכס:")
+        doc.add_paragraph("שם המוכר:\nשם הקונה:\nת\"ז קונה:\nמספר טלפון:\nכתובת נוכחית:\nמחיר הנכס:")
         doc.save(REG_TEMPLATE_FILE)
 
     def get_current_template_version():
@@ -120,32 +121,75 @@ else:
             return time.strftime("%Y-%m-%d %H:%M", time.localtime(mtime))
         return datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
 
-    def extract_data(doc):
+    def extract_data_smart(doc):
+        """חילוץ דינאמי וחכם של כל שדה מתוך טופס הוורד"""
         data = {}
         for para in doc.paragraphs:
             text = para.text.strip()
-            if text.startswith("שם המוכר:"):
-                data["שם המוכר"] = text.replace("שם המוכר:", "").strip()
-            elif text.startswith("שם הקונה:"):
-                data["שם הקונה"] = text.replace("שם הקונה:", "").strip()
-            elif text.startswith('ת"ז קונה:'):
-                data["ת\"ז קונה"] = text.replace('ת"ז קונה:', "").strip()
-            elif text.startswith("כתובת נוכחית:"):
-                data["כתובת נוכחית"] = text.replace("כתובת נוכחית:", "").strip()
-            elif text.startswith("מחיר הנכס:"):
-                data["מחיר הנכס"] = text.replace("מחיר הנכס:", "").strip()
+            if ":" in text:
+                parts = text.split(":", 1)
+                key = parts[0].replace("שדה", "").strip()
+                val = parts[1].strip()
+                if key and val:
+                    data[key] = val
         return data
+
+    def ai_smartify_contract_template(file_buffer):
+        """פונקציית AI המשתמשת ב-Gemini להפיכת מסמך וורד רגיל לתבנית מאסטר חכמה עם {{סוגריים}}"""
+        try:
+            doc = Document(file_buffer)
+            full_text_to_process = "\n".join([p.text for p in doc.paragraphs if p.text.strip()])
+            
+            # בדיקה האם הוגדר מפתח API במסתרים של Streamlit
+            if "GEMINI_API_KEY" in st.secrets:
+                genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
+                model = genai.GenerativeModel('gemini-1.5-flash')
+                prompt = f"""
+                אתה עוזר משפטי חכם. לפניך טקסט של חוזה נדל"ן. 
+                אנא החלף את הפרטים האישיים המשתנים (כגון שמות קונים, מוכרים, תעודות זהות, כתובות, מחירים ותאריכים) 
+                במפתחות מתאימים בתוך סוגריים מסולסלים כפולים כמו {{שם_הקונה}}, {{תז_קונה}}, {{שם_המוכר}}, {{מחיר_הנכס}}, {{כתובת_נוכחית}}, {{טלפון_קונה}}.
+                החזר את הטקסט המעודכן בלבד, מבלי לוותר על שאר סעיפי החוזה.
+                
+                הטקסט:
+                {full_text_to_process}
+                """
+                response = model.generate_content(prompt)
+                new_text_lines = response.text.split("\n")
+                
+                # יצירת מסמך חדש עם התוצאה המעודכנת מה-AI
+                new_doc = Document()
+                for line in new_text_lines:
+                    new_doc.add_paragraph(line)
+                
+                bio = io.BytesIO()
+                new_doc.save(bio)
+                return bio.getvalue()
+            else:
+                # לוגיקת גיבוי מקומית אם אין עדיין מפתח API מוגדר
+                for p in doc.paragraphs:
+                    p.text = p.text.replace("ישראל ישראלי", "{{שם_הקונה}}").replace("חברת נדל\"ן", "{{שם_המוכר}}")
+                bio = io.BytesIO()
+                doc.save(bio)
+                return bio.getvalue()
+        except Exception as e:
+            st.error(f"שגיאה בהפעלת שירות ה-AI: {e}")
+            return None
 
     def generate_contract(data):
         doc = Document(TEMPLATE_FILE)
-        placeholders = {
-            "{{שם_המוכר}}": str(data.get("שם המוכר", "")),
-            "{{שם_הקונה}}": str(data.get("שם הקונה", "")),
-            "{{תז_קונה}}": str(data.get("ת\"ז קונה", "")),
-            "{{כתובת_נוכחית}}": str(data.get("כתובת נוכחית", "")),
-            "{{מחיר_הנכס}}": str(data.get("מחיר הנכס", ""))
-        }
+        placeholders = {}
+        for k, v in data.items():
+            if k not in ["תאריך הוספה", "גרסת חוזה"]:
+                clean_key = f"{{{{{k.replace(' ', '_').replace('\"', '')}}}}}"
+                placeholders[clean_key] = str(v)
         
+        placeholders["{{שם_המוכר}}"] = str(data.get("שם המוכר", ""))
+        placeholders["{{שם_הקונה}}"] = str(data.get("שם הקונה", ""))
+        placeholders["{{תז_קונה}}"] = str(data.get("ת\"ז קונה", ""))
+        placeholders["{{טלפון_קונה}}"] = str(data.get("מספר טלפון", data.get("טלפון", "")))
+        placeholders["{{כתובת_נוכחית}}"] = str(data.get("כתובת נוכחית", ""))
+        placeholders["{{מחיר_הנכס}}"] = str(data.get("מחיר הנכס", ""))
+
         for para in doc.paragraphs:
             for key, val in placeholders.items():
                 if key in para.text:
@@ -163,18 +207,18 @@ else:
         extracted_data["גרסת חוזה"] = template_ver
         
         new_row = pd.DataFrame([extracted_data])
-        
+        id_field = 'ת"ז קונה' if 'ת"ז קונה' in extracted_data else list(extracted_data.keys())[1]
+
         if os.path.exists(DB_FILE):
             df_existing = pd.read_excel(DB_FILE)
-            
-            if 'ת"ז קונה' in df_existing.columns and str(extracted_data.get('ת"ז קונה')) in df_existing['ת"ז קונה'].astype(str).values:
-                df_existing.loc[df_existing['ת"ז קונה'].astype(str) == str(extracted_data.get('ת"ז קונה')), ['שם המוכר', 'שם הקונה', 'כתובת נוכחית', 'מחיר הנכס', 'גרסת חוזה']] = [
-                    extracted_data['שם המוכר'], extracted_data['שם הקונה'], extracted_data['כתובת נוכחית'], extracted_data['מחיר הנכס'], template_ver
-                ]
+            if id_field in df_existing.columns and str(extracted_data.get(id_field)) in df_existing[id_field].astype(str).values:
+                for col in extracted_data.keys():
+                    if col in df_existing.columns:
+                        df_existing.loc[df_existing[id_field].astype(str) == str(extracted_data.get(id_field)), col] = extracted_data[col]
                 df_existing.to_excel(DB_FILE, index=False)
-                st.success(f"הקונה כבר קיים במאגר – פרטיו וגרסת החוזה שלו עודכנו לגרסה העדכנית ({template_ver})!")
+                st.success(f"הלקוח כבר קיים במאגר – פרטיו עודכנו בהצלחה לגרסה העדכנית ({template_ver})!")
             else:
-                df_updated = pd.concat([df_existing, new_row], ignore_index=True)
+                df_updated = pd.concat([df_existing, new_row], ignore_index=True, sort=False)
                 df_updated.to_excel(DB_FILE, index=False)
                 st.success(f"הקונה החדש נוסף בהצלחה למאגר של {selected_project_heb}.")
         else:
@@ -218,11 +262,25 @@ else:
                     st.error(f"שגיאה: {e}")
 
         st.markdown("---")
-        st.subheader("חוזה מכר")
+        st.subheader("חוזה מכר (מאסטר)")
         st.caption(f"גרסת מאסטר נוכחית: {get_current_template_version()}")
-        uploaded_template = st.file_uploader("החלף תבנית חוזה מאסטר", type=["docx"], key="master_lease")
+        
+        uploaded_template = st.file_uploader("העלה חוזה מאסטר רגיל", type=["docx"], key="master_lease")
+        
         if uploaded_template is not None:
-            if st.button("שמור תבנית חוזה חדשה"):
+            # כפתור הפעלת AI לשדרוג התבנית אוטומטית
+            if st.button("✨ שדרג תבנית בעזרת AI (הוסף סוגריים מסולסלים אוטומטית)"):
+                with st.spinner("הבינה המלאכית מעבדת את החוזה ומוסיפה שדות חכמים..."):
+                    processed_bytes = ai_smartify_contract_template(uploaded_template)
+                    if processed_bytes:
+                        with open(TEMPLATE_FILE, "wb") as f:
+                            f.write(processed_bytes)
+                        st.success("החוזה שודרג בהצלחה על ידי ה-AI ונשמר כתבנית מאסטר חכמה!")
+                        time.sleep(1)
+                        st.rerun()
+
+        if st.button("שמור תבנית חוזה כרגיל (ללא AI)"):
+            if uploaded_template is not None:
                 try:
                     with open(TEMPLATE_FILE, "wb") as f:
                         f.write(uploaded_template.getbuffer())
@@ -241,9 +299,9 @@ else:
             if st.button("חלץ נתונים והפק הסכם מכר"):
                 try:
                     doc = Document(uploaded_file)
-                    data = extract_data(doc)
+                    data = extract_data_smart(doc)
                     if not data:
-                        st.error("לא הצלחתי למצוא נתונים. ודאי שהטופס כתוב בדיוק לפי התבנית.")
+                        st.error("לא הצלחתי למצוא נתונים בפורמט מפתח: ערך.")
                     else:
                         process_and_download(data)
                 except Exception as e:
@@ -254,6 +312,7 @@ else:
             seller_name = st.text_input("שם המוכר", value='חברת נדל"ן בע"מ')
             buyer_name = st.text_input("שם הקונה")
             buyer_id = st.text_input('ת"ז קונה')
+            buyer_phone = st.text_input("מספר טלפון")
             buyer_address = st.text_input("כתובת נוכחית")
             price = st.text_input("מחיר הנכס")
             
@@ -267,6 +326,7 @@ else:
                         "שם המוכר": seller_name,
                         "שם הקונה": buyer_name,
                         "ת\"ז קונה": buyer_id,
+                        "מספר טלפון": buyer_phone,
                         "כתובת נוכחית": buyer_address,
                         "מחיר הנכס": price
                     }
@@ -311,7 +371,7 @@ else:
             with cols[2]:
                 if st.button("🔄 עדכן לגרסה חדשה", key=f"update_ver_{project_code}_{idx}"):
                     current_ver = get_current_template_version()
-                    df.loc[df['ת"ז קונה'].astype(str) == buyer_id_str, 'גרסת חוזה'] = current_ver
+                    df.loc[df.iloc[:, 1].astype(str) == buyer_id_str, 'גרסת חוזה'] = current_ver
                     df.to_excel(DB_FILE, index=False)
                     st.success(f"החוזה עודכן לגרסה {current_ver}!")
                     st.rerun()
