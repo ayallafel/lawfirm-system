@@ -74,7 +74,6 @@ if st.session_state.selected_project is None:
                 
         with col_btn:
             st.markdown(f"### פרויקט {heb_name}")
-            st.markdown(f"מזהה מערכת: `{code}`")
             if st.button(f"כניסה לפרויקט {heb_name}", key=f"btn_{code}"):
                 st.session_state.selected_project = (heb_name, code)
                 st.rerun()
@@ -285,12 +284,10 @@ else:
         if "גרסת חוזה" not in df.columns:
             df["גרסת חוזה"] = "ישנה"
 
-        # הצגת טבלת הנתונים המקורית באופן נקי ומסודר
         st.dataframe(df, use_container_width=True)
 
         st.markdown("### 📥 הורדת חוזים ועדכון גרסאות ללקוחות")
         
-        # מעבר על כל לקוח כדי לתת אפשרות הורדה ועדכון מהירים בצורה מסודרת
         for idx, row in df.iterrows():
             client_data = row.to_dict()
             buyer_name_str = str(client_data.get('שם הקונה', 'לקוח'))
