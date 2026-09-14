@@ -39,6 +39,13 @@ st.markdown("""
 
 LOGO_FILE = "logo.png"
 
+# --- הגדרת מפתח ה-AI האמיתי ---
+API_KEY = "AQ.Ab8RN6I1yYGdHWzYkBLjbTVFfIMj64t7WDVJghNFdIwChO284A"
+try:
+    genai.configure(api_key=API_KEY)
+except Exception:
+    pass
+
 # --- ניהול מצב האפליקציה (Session State) לבחירת פרויקט ---
 if 'selected_project' not in st.session_state:
     st.session_state.selected_project = None
@@ -140,37 +147,27 @@ else:
             doc = Document(file_buffer)
             full_text_to_process = "\n".join([p.text for p in doc.paragraphs if p.text.strip()])
             
-            # בדיקה האם הוגדר מפתח API במסתרים של Streamlit
-            if "GEMINI_API_KEY" in st.secrets:
-                genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
-                model = genai.GenerativeModel('gemini-1.5-flash')
-                prompt = f"""
-                אתה עוזר משפטי חכם. לפניך טקסט של חוזה נדל"ן. 
-                אנא החלף את הפרטים האישיים המשתנים (כגון שמות קונים, מוכרים, תעודות זהות, כתובות, מחירים ותאריכים) 
-                במפתחות מתאימים בתוך סוגריים מסולסלים כפולים כמו {{שם_הקונה}}, {{תז_קונה}}, {{שם_המוכר}}, {{מחיר_הנכס}}, {{כתובת_נוכחית}}, {{טלפון_קונה}}.
-                החזר את הטקסט המעודכן בלבד, מבלי לוותר על שאר סעיפי החוזה.
-                
-                הטקסט:
-                {full_text_to_process}
-                """
-                response = model.generate_content(prompt)
-                new_text_lines = response.text.split("\n")
-                
-                # יצירת מסמך חדש עם התוצאה המעודכנת מה-AI
-                new_doc = Document()
-                for line in new_text_lines:
-                    new_doc.add_paragraph(line)
-                
-                bio = io.BytesIO()
-                new_doc.save(bio)
-                return bio.getvalue()
-            else:
-                # לוגיקת גיבוי מקומית אם אין עדיין מפתח API מוגדר
-                for p in doc.paragraphs:
-                    p.text = p.text.replace("ישראל ישראלי", "{{שם_הקונה}}").replace("חברת נדל\"ן", "{{שם_המוכר}}")
-                bio = io.BytesIO()
-                doc.save(bio)
-                return bio.getvalue()
+            # שימוש בדגם המומלץ והעדכני gemini-3.6-flash
+            model = genai.GenerativeModel('gemini-3.6-flash')
+            prompt = f"""
+            אתה עוזר משפטי חכם. לפניך טקסט של חוזה נדל"ן. 
+            אנא החלף את הפרטים האישיים המשתנים (כגון שמות קונים, מוכרים, תעודות זהות, כתובות, מחירים ותאריכים) 
+            במפתחות מתאימים בתוך סוגריים מסולסלים כפולים כמו {{שם_הקונה}}, {{תז_קונה}}, {{שם_המוכר}}, {{מחיר_הנכס}}, {{כתובת_נוכחית}}, {{טלפון_קונה}}.
+            החזר את הטקסט המעודכן בלבד, מבלי לוותר על שאר סעיפי החוזה.
+            
+            הטקסט:
+            {full_text_to_process}
+            """
+            response = model.generate_content(prompt)
+            new_text_lines = response.text.split("\n")
+            
+            new_doc = Document()
+            for line in new_text_lines:
+                new_doc.add_paragraph(line)
+            
+            bio = io.BytesIO()
+            new_doc.save(bio)
+            return bio.getvalue()
         except Exception as e:
             st.error(f"שגיאה בהפעלת שירות ה-AI: {e}")
             return None
@@ -268,7 +265,6 @@ else:
         uploaded_template = st.file_uploader("העלה חוזה מאסטר רגיל", type=["docx"], key="master_lease")
         
         if uploaded_template is not None:
-            # כפתור הפעלת AI לשדרוג התבנית אוטומטית
             if st.button("✨ שדרג תבנית בעזרת AI (הוסף סוגריים מסולסלים אוטומטית)"):
                 with st.spinner("הבינה המלאכית מעבדת את החוזה ומוסיפה שדות חכמים..."):
                     processed_bytes = ai_smartify_contract_template(uploaded_template)
