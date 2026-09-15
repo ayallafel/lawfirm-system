@@ -106,12 +106,12 @@ else:
 
     if not os.path.exists(TEMPLATE_FILE):
         doc = Document()
-        doc.add_paragraph("המוכר: {{שם_המוכר}}\nהקונה: {{שם_הקונה}}\nת.ז: {{תז_קונה}}\nטלפון: {{טלפון_קונה}}\nכתובת: {{כתובת_נוכחית}}\nמחיר הנכס: {{מחיר_הנכס}}")
+        doc.add_paragraph("בניין: {{מספר_בניין}}\nדירה: {{מספר_דירה}}\nקונה 1: {{שם_הקונה_1}}\nת.ז 1: {{תז_קונה_1}}\nמחיר: {{מחיר_הדירה}}")
         doc.save(TEMPLATE_FILE)
 
     if not os.path.exists(REG_TEMPLATE_FILE):
         doc = Document()
-        doc.add_paragraph("שם המוכר:\nשם הקונה:\nת\"ז קונה:\nמספר טלפון:\nכתובת נוכחית:\nמחיר הנכס:")
+        doc.add_paragraph("מספר בניין:\nמספר דירה:\nקומה:\nמספר חדרים:\nשם הקונה 1:\nת\"ז קונה 1:\nשם הקונה 2:\nת\"ז קונה 2:\nכתובת הקונה:\nמספר טלפון:\nדוא\"ל:\nמחיר הדירה:\nמחיר הדירה במילים:")
         doc.save(REG_TEMPLATE_FILE)
 
     def get_current_template_version():
@@ -135,24 +135,42 @@ else:
 
     def generate_contract(data):
         doc = Document(TEMPLATE_FILE)
-        placeholders = {}
-        for k, v in data.items():
-            if k not in ["תאריך הוספה", "גרסת חוזה"]:
-                clean_key = f"{{{{{k.replace(' ', '_').replace('\"', '')}}}}}"
-                placeholders[clean_key] = str(v)
         
-        placeholders["{{שם_המוכר}}"] = str(data.get("שם המוכר", ""))
-        placeholders["{{שם_הקונה}}"] = str(data.get("שם הקונה", ""))
-        placeholders["{{תז_קונה}}"] = str(data.get("ת\"ז קונה", ""))
-        placeholders["{{טלפון_קונה}}"] = str(data.get("מספר טלפון", data.get("טלפון", "")))
-        placeholders["{{כתובת_נוכחית}}"] = str(data.get("כתובת נוכחית", ""))
-        placeholders["{{מחיר_הנכס}}"] = str(data.get("מחיר הנכס", ""))
+        # מיפוי חכם של שדות מתוך הנתונים אל המשתנים החדשים בחוזה
+        now = datetime.datetime.now()
+        placeholders = {
+            "{{מספר_בניין}}": str(data.get("מספר בניין", data.get("בניין", "1"))),
+            "{{מספר_דירה}}": str(data.get("מספר דירה", data.get("דירה", "1"))),
+            "{{קומה}}": str(data.get("קומה", "1")),
+            "{{מספר_חדרים}}": str(data.get("מספר חדרים", data.get("חדרים", "4"))),
+            "{{יום_חתימה}}": str(data.get("יום חתימה", now.strftime("%d"))),
+            "{{חודש_חתימה}}": str(data.get("חודש חתימה", now.strftime("%m"))),
+            "{{שנת_חתימה}}": str(data.get("שנת חתימה", now.strftime("%Y"))),
+            "{{שם_הקונה_1}}": str(data.get("שם הקונה 1", data.get("שם הקונה", ""))),
+            "{{תז_קונה_1}}": str(data.get("ת\"ז קונה 1", data.get("ת\"ז קונה", ""))),
+            "{{שם_הקונה_2}}": str(data.get("שם הקונה 2", "")),
+            "{{תז_קונה_2}}": str(data.get("ת\"ז קונה 2", "")),
+            "{{כתובת_הקונה}}": str(data.get("כתובת הקונה", data.get("כתובת נוכחית", ""))),
+            "{{טלפון_הקונה_1}}": str(data.get("מספר טלפון", data.get("טלפון", ""))),
+            "{{דואל_הקונה_1}}": str(data.get("דוא\"ל", data.get("אימייל", ""))),
+            "{{מחיר_הדירה}}": str(data.get("מחיר הדירה", data.get("מחיר הנכס", ""))),
+            "{{מחיר_הדירה_במילים}}": str(data.get("מחיר הדירה במילים", "")),
+        }
 
+        # החלפה בכל פסקאות המסמך
         for para in doc.paragraphs:
             for key, val in placeholders.items():
                 if key in para.text:
                     para.text = para.text.replace(key, val)
-        
+                    
+        # בדיקה גם בטבלאות אם קיימות במסמך
+        for table in doc.tables:
+            for row in table.rows:
+                for cell in row.cells:
+                    for key, val in placeholders.items():
+                        if key in cell.text:
+                            cell.text = cell.text.replace(key, val)
+
         bio = io.BytesIO()
         doc.save(bio)
         return bio.getvalue()
@@ -165,7 +183,7 @@ else:
         extracted_data["גרסת חוזה"] = template_ver
         
         new_row = pd.DataFrame([extracted_data])
-        id_field = 'ת"ז קונה' if 'ת"ז קונה' in extracted_data else list(extracted_data.keys())[1]
+        id_field = 'ת"ז קונה 1' if 'ת"ז קונה 1' in extracted_data else ('ת"ז קונה' if 'ת"ז קונה' in extracted_data else list(extracted_data.keys())[1])
 
         if os.path.exists(DB_FILE):
             df_existing = pd.read_excel(DB_FILE)
@@ -184,7 +202,7 @@ else:
             st.success(f"נוצר מאגר נתונים חדש עבור פרויקט {selected_project_heb}.")
         
         contract_bytes = generate_contract(extracted_data)
-        buyer_name = str(extracted_data.get("שם הקונה", "לקוח_ללא_שם")).replace(" ", "_")
+        buyer_name = str(extracted_data.get("שם הקונה 1", extracted_data.get("שם הקונה", "לקוח_ללא_שם"))).replace(" ", "_")
         filename = f"הסכם_מכר_{project_code}_{buyer_name}.docx"
         
         st.download_button(
@@ -223,7 +241,7 @@ else:
         st.subheader("חוזה מכר (מאסטר)")
         st.caption(f"גרסת מאסטר נוכחית: {get_current_template_version()}")
         
-        uploaded_template = st.file_uploader("העלה חוזה מאסטר רגיל", type=["docx"], key="master_lease")
+        uploaded_template = st.file_uploader("העלה חוזה מאסטר חדש", type=["docx"], key="master_lease")
         
         if uploaded_template is not None:
             if st.button("שמור תבנית חוזה מאסטר חדשה"):
@@ -257,26 +275,38 @@ else:
 
     else:
         with st.form("manual_entry_form"):
-            seller_name = st.text_input("שם המוכר", value='חברת נדל"ן בע"מ')
-            buyer_name = st.text_input("שם הקונה")
-            buyer_id = st.text_input('ת"ז קונה')
-            buyer_phone = st.text_input("מספר טלפון")
-            buyer_address = st.text_input("כתובת נוכחית")
-            price = st.text_input("מחיר הנכס")
+            col_a, col_b = st.columns(2)
+            with col_a:
+                building_num = st.text_input("מספר בניין", value="1")
+                apartment_num = st.text_input("מספר דירה")
+                floor = st.text_input("קומה")
+                rooms = st.text_input("מספר חדרים", value="4")
+            with col_b:
+                buyer1_name = st.text_input("שם הקונה 1")
+                buyer1_id = st.text_input('ת"ז קונה 1')
+                buyer_phone = st.text_input("מספר טלפון")
+                buyer_email = st.text_input("דוא\"ל")
+            
+            price = st.text_input("מחיר הדירה (₪)")
+            price_words = st.text_input("מחיר הדירה במילים (לדוגמה: שני מיליון ומאה אלף)")
             
             submitted = st.form_submit_button("שמור נתונים והפק הסכם מכר")
             
             if submitted:
-                if not buyer_name or not buyer_id:
-                    st.error("חובה להזין לפחות שם קונה ותעודת זהות.")
+                if not buyer1_name or not buyer1_id or not apartment_num:
+                    st.error("חובה להזין לפחות מספר דירה, שם קונה ותעודת זהות.")
                 else:
                     manual_data = {
-                        "שם המוכר": seller_name,
-                        "שם הקונה": buyer_name,
-                        "ת\"ז קונה": buyer_id,
+                        "מספר בניין": building_num,
+                        "מספר דירה": apartment_num,
+                        "קומה": floor,
+                        "מספר חדרים": rooms,
+                        "שם הקונה 1": buyer1_name,
+                        "ת\"ז קונה 1": buyer1_id,
                         "מספר טלפון": buyer_phone,
-                        "כתובת נוכחית": buyer_address,
-                        "מחיר הנכס": price
+                        "דוא\"ל": buyer_email,
+                        "מחיר הדירה": price,
+                        "מחיר הדירה במילים": price_words
                     }
                     process_and_download(manual_data)
 
@@ -298,8 +328,8 @@ else:
         
         for idx, row in df.iterrows():
             client_data = row.to_dict()
-            buyer_name_str = str(client_data.get('שם הקונה', 'לקוח'))
-            buyer_id_str = str(client_data.get('ת"ז קונה', ''))
+            buyer_name_str = str(client_data.get('שם הקונה 1', client_data.get('שם הקונה', 'לקוח')))
+            buyer_id_str = str(client_data.get('ת"ז קונה 1', client_data.get('ת"ז קונה', '')))
             
             cols = st.columns([3, 1, 1])
             with cols[0]:
