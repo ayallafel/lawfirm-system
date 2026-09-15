@@ -5,7 +5,6 @@ import os
 import io
 import datetime
 import time
-import google.generativeai as genai
 
 # --- הגדרות עיצוב וממשק ---
 st.set_page_config(page_title="אילן פלדמן - משרד עורכי דין", page_icon="🏢", layout="centered")
@@ -38,13 +37,6 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 LOGO_FILE = "logo.png"
-
-# --- הגדרת מפתח ה-AI הקלאסי ---
-API_KEY = "AIzaSyD2kYYWLQH-yDWgevLHLOKPS8cLxgGwg6g"
-try:
-    genai.configure(api_key=API_KEY)
-except Exception:
-    pass
 
 # --- ניהול מצב האפליקציה (Session State) לבחירת פרויקט ---
 if 'selected_project' not in st.session_state:
@@ -141,36 +133,6 @@ else:
                     data[key] = val
         return data
 
-    def ai_smartify_contract_template(file_buffer):
-        """פונקציית AI המשתמשת ב-Gemini להפיכת מסמך וורד רגיל לתבנית מאסטר חכמה עם {{סוגריים}}"""
-        try:
-            doc = Document(file_buffer)
-            full_text_to_process = "\n".join([p.text for p in doc.paragraphs if p.text.strip()])
-            
-            model = genai.GenerativeModel('gemini-1.5-flash')
-            prompt = f"""
-            אתה עוזר משפטי חכם. לפניך טקסט של חוזה נדל"ן. 
-            אנא החלף את הפרטים האישיים המשתנים (כגון שמות קונים, מוכרים, תעודות זהות, כתובות, מחירים ותאריכים) 
-            במפתחות מתאימים בתוך סוגריים מסולסלים כפולים כמו {{שם_הקונה}}, {{תז_קונה}}, {{שם_המוכר}}, {{מחיר_הנכס}}, {{כתובת_נוכחית}}, {{טלפון_קונה}}.
-            החזר את הטקסט המעודכן בלבד, מבלי לוותר על שאר סעיפי החוזה.
-            
-            הטקסט:
-            {full_text_to_process}
-            """
-            response = model.generate_content(prompt)
-            new_text_lines = response.text.split("\n")
-            
-            new_doc = Document()
-            for line in new_text_lines:
-                new_doc.add_paragraph(line)
-            
-            bio = io.BytesIO()
-            new_doc.save(bio)
-            return bio.getvalue()
-        except Exception as e:
-            st.error(f"שגיאה בהפעלת שירות ה-AI: {e}")
-            return None
-
     def generate_contract(data):
         doc = Document(TEMPLATE_FILE)
         placeholders = {}
@@ -264,22 +226,13 @@ else:
         uploaded_template = st.file_uploader("העלה חוזה מאסטר רגיל", type=["docx"], key="master_lease")
         
         if uploaded_template is not None:
-            if st.button("✨ שדרג תבנית בעזרת AI (הוסף סוגריים מסולסלים אוטומטית)"):
-                with st.spinner("הבינה המלאכית מעבדת את החוזה ומוסיפה שדות חכמים..."):
-                    processed_bytes = ai_smartify_contract_template(uploaded_template)
-                    if processed_bytes:
-                        with open(TEMPLATE_FILE, "wb") as f:
-                            f.write(processed_bytes)
-                        st.success("החוזה שודרג בהצלחה על ידי ה-AI ונשמר כתבנית מאסטר חכמה!")
-                        time.sleep(1)
-                        st.rerun()
-
-        if st.button("שמור תבנית חוזה כרגיל (ללא AI)"):
-            if uploaded_template is not None:
+            if st.button("שמור תבנית חוזה מאסטר חדשה"):
                 try:
                     with open(TEMPLATE_FILE, "wb") as f:
                         f.write(uploaded_template.getbuffer())
                     st.success("תבנית החוזה עודכנה בהצלחה!")
+                    time.sleep(1)
+                    st.rerun()
                 except Exception as e:
                     st.error(f"שגיאה: {e}")
 
